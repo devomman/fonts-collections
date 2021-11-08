@@ -1,0 +1,25 @@
+----------------------//
+		// Helper functions
+		//--------------------------------------------------------------------//
+
+		/**
+		 * Return various data for the conditional field.
+		 *
+		 * @since 1.0.0
+		 */
+		conditionalData: function( el ) {
+
+			var $this = $( el );
+			var data  = {
+				fields     : wpf.getFields( false, true ),
+				inputBase  : $this.closest( '.wpforms-conditional-row' ).attr( 'data-input-name' ),
+				fieldID    : $this.closest( '.wpforms-conditional-row' ).attr( 'data-field-id' ),
+				ruleID     : $this.attr( 'data-ruleid' ),
+				groupID    : $this.attr( 'data-groupid' ),
+				selectedID : $this.find( ':selected' ).val(),
+			};
+
+			data.inputName = data.inputBase + '[conditionals]';
+
+			if ( data.selectedID.length ) {
+				data.field =

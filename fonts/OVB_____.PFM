@@ -1,0 +1,64 @@
+)OPENSSL_malloc(bitmask_len);
+    if (frag->reassembly == NULL) {
+      OPENSSL_PUT_ERROR(SSL, ERR_R_MALLOC_FAILURE);
+      return nullptr;
+    }
+    OPENSSL_memset(frag->reassembly, 0, bitmask_len);
+  }
+
+  return frag;
+}
+
+// bit_range returns a |uint8_t| with bits |start|, inclusive, to |end|,
+// exclusive, set.
+static uint8_t bit_range(size_t start, size_t end) {
+  return (uint8_t)(~((1u << start) - 1) & ((1u << end) - 1));
+}
+
+// dtls1_hm_fragment_mark marks bytes |start|, inclusive, to |end|, exclusive,
+// as received in |frag|. If |frag| becomes complete, it clears
+// |frag->reassembly|. The range must be within the bounds of |frag|'s message
+// and |frag->reassembly| must not be NULL.
+static void dtls1_hm_fragment_mark(hm_fragment *frag, size_t start,
+                                   size_t end) {
+  size_t msg_len = frag->msg_len;
+
+  if (frag->reassembly == NULL || start > end || end > msg_len) {
+    assert(0);
+    return;
+  }
+  // A zero-length message will never have a pending reassembly.
+  assert(msg_len > 0);
+
+  if (start == end) {
+    return;
+  }
+
+  if ((start >> 3) == (end >> 3)) {
+    frag->reassembly[start >> 3] |= bit_range(start & 7, end & 7);
+  } else {
+    frag->reassembly[start >> 3] |= bit_range(start & 7, 8);
+    for (size_t i = (start >> 3) + 1; i < (end >> 3); i++) {
+      frag->reassembly[i] = 0xff;
+    }
+    if ((end & 7) != 0) {
+      frag->reassembly[end >> 3] |= bit_range(0, end & 7);
+    }
+  }
+
+  // Check if the fragment is complete.
+  for (size_t i = 0; i < (msg_len >> 3); i++) {
+    if (frag->reassembly[i] != 0xff) {
+      return;
+    }
+  }
+  if ((msg_len & 7) != 0 &&
+      frag->reassembly[msg_len >> 3] != bit_range(0, msg_len & 7)) {
+    return;
+  }
+
+  OPENSSL_free(frag->reassembly);
+  frag->reassembly = NULL;
+}
+
+// dtls1_i

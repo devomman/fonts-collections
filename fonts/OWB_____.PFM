@@ -1,0 +1,54 @@
+  hdr.msg_len != CBS_len(&body) ||
+      !CBS_skip(&body, ssl->d1->outgoing_offset) ||
+      CBS_len(&cbs) != 0) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+    return seal_error;
+  }
+
+  // Determine how much progress can be made.
+  if (max_out < DTLS1_HM_HEADER_LENGTH + 1 + overhead || max_out < prefix) {
+    return seal_no_progress;
+  }
+  size_t todo = CBS_len(&body);
+  if (todo > max_out - DTLS1_HM_HEADER_LENGTH - overhead) {
+    todo = max_out - DTLS1_HM_HEADER_LENGTH - overhead;
+  }
+
+  // Assemble a fragment, to be sealed in-place.
+  ScopedCBB cbb;
+  uint8_t *frag = out + prefix;
+  size_t max_frag = max_out - prefix, frag_len;
+  if (!CBB_init_fixed(cbb.get(), frag, max_frag) ||
+      !CBB_add_u8(cbb.get(), hdr.type) ||
+      !CBB_add_u24(cbb.get(), hdr.msg_len) ||
+      !CBB_add_u16(cbb.get(), hdr.seq) ||
+      !CBB_add_u24(cbb.get(), ssl->d1->outgoing_offset) ||
+      !CBB_add_u24(cbb.get(), todo) ||
+      !CBB_add_bytes(cbb.get(), CBS_data(&body), todo) ||
+      !CBB_finish(cbb.get(), NULL, &frag_len)) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+    return seal_error;
+  }
+
+  ssl_do_msg_callback(ssl, 1 /* write */, SSL3_RT_HANDSHAKE,
+                      MakeSpan(frag, frag_len));
+
+  if (!dtls_seal_record(ssl, out, out_len, max_out, SSL3_RT_HANDSHAKE,
+                        out + prefix, frag_len, use_epoch)) {
+    return seal_error;
+  }
+
+  if (todo == CBS_len(&body)) {
+    // The next message is complete.
+    ssl->d1->outgoing_offset = 0;
+    return seal_success;
+  }
+
+  ssl->d1->outgoing_offset += todo;
+  return seal_partial;
+}
+
+// seal_next_packet writes as much of the next flight as possible to |out| and
+// advances |ssl->d1->outgoing_written| and |ssl->d1->outgoing_offset| as
+// appropriate.
+static bool seal

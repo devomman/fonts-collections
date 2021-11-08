@@ -1,0 +1,20 @@
+{Array}  fields		 Array of fields.
+		 * @param {number} fieldSelected ID of selected field.
+		 *
+		 * @returns {string} HTML template.
+		 */
+		getFieldValuesListTemplate: function( fields, fieldSelected ) {
+
+			// Return cached template if possible.
+			if ( updater.fieldValuesListTemplates[fieldSelected] ) {
+				return updater.fieldValuesListTemplates[fieldSelected];
+			}
+
+			var key;
+			var items   = wpf.orders.choices['field_' + fieldSelected];
+			var $select = $( '<select>' );
+
+			for ( key in items ) {
+				var choiceKey = items[key],
+					label = typeof fields[ fieldSelected ].choices[ choiceKey ] !== 'undefined' && fields[ fieldSelected ].choices[ choiceKey ].label.toString().trim() !== '' ?
+						wpf.sanitizeHTML( fields[ fieldSelected ].choices[ choiceKey ].label.toStr

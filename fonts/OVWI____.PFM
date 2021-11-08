@@ -1,0 +1,53 @@
+ *out_alert = SSL_AD_UNEXPECTED_MESSAGE;
+        return ssl_open_record_error;
+      }
+
+      // Out-of-order application data may be received between ChangeCipherSpec
+      // and finished. Discard it.
+      return ssl_open_record_discard;
+
+    case SSL3_RT_CHANGE_CIPHER_SPEC:
+      // We do not support renegotiation, so encrypted ChangeCipherSpec records
+      // are illegal.
+      if (!ssl->s3->aead_read_ctx->is_null_cipher()) {
+        OPENSSL_PUT_ERROR(SSL, SSL_R_UNEXPECTED_RECORD);
+        *out_alert = SSL_AD_UNEXPECTED_MESSAGE;
+        return ssl_open_record_error;
+      }
+
+      if (record.size() != 1u || record[0] != SSL3_MT_CCS) {
+        OPENSSL_PUT_ERROR(SSL, SSL_R_BAD_CHANGE_CIPHER_SPEC);
+        *out_alert = SSL_AD_ILLEGAL_PARAMETER;
+        return ssl_open_record_error;
+      }
+
+      // Flag the ChangeCipherSpec for later.
+      ssl->d1->has_change_cipher_spec = true;
+      ssl_do_msg_callback(ssl, 0 /* read */, SSL3_RT_CHANGE_CIPHER_SPEC,
+                          record);
+      return ssl_open_record_success;
+
+    case SSL3_RT_HANDSHAKE:
+      // Break out to main processing.
+      break;
+
+    default:
+      OPENSSL_PUT_ERROR(SSL, SSL_R_UNEXPECTED_RECORD);
+      *out_alert = SSL_AD_UNEXPECTED_MESSAGE;
+      return ssl_open_record_error;
+  }
+
+  CBS cbs;
+  CBS_init(&cbs, record.data(), record.size());
+  while (CBS_len(&cbs) > 0) {
+    // Read a handshake fragment.
+    struct hm_header_st msg_hdr;
+    CBS body;
+    if (!dtls1_parse_fragment(&cbs, &msg_hdr, &body)) {
+      OPENSSL_PUT_ERROR(SSL, SSL_R_BAD_HANDSHAKE_RECORD);
+      *out_alert = SSL_AD_DECODE_ERROR;
+      return ssl_open_record_error;
+    }
+
+    const size_t frag_off = msg_hdr.frag_off;
+    const size_t frag_len = msg_hdr.frag_len
